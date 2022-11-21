@@ -13,9 +13,10 @@ import android.content.pm.ShortcutManager
 import android.os.Build
 import android.view.accessibility.AccessibilityManager
 import androidx.annotation.VisibleForTesting
-import androidx.annotation.VisibleForTesting.PRIVATE
+import androidx.annotation.VisibleForTesting.Companion.PRIVATE
 import androidx.lifecycle.LifecycleOwner
 import mozilla.components.concept.engine.Engine.HttpsOnlyMode
+import mozilla.components.concept.engine.EngineSession.CookieBannerHandlingMode
 import mozilla.components.feature.sitepermissions.SitePermissionsRules
 import mozilla.components.feature.sitepermissions.SitePermissionsRules.Action
 import mozilla.components.feature.sitepermissions.SitePermissionsRules.AutoplayAction
@@ -31,7 +32,6 @@ import mozilla.components.support.locale.LocaleManager
 import org.mozilla.fenix.BuildConfig
 import org.mozilla.fenix.Config
 import org.mozilla.fenix.FeatureFlags
-import org.mozilla.fenix.FeatureFlags.historyImprovementFeatures
 import org.mozilla.fenix.R
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.components.metrics.MozillaProductDetector
@@ -41,6 +41,7 @@ import org.mozilla.fenix.components.settings.lazyFeatureFlagPreference
 import org.mozilla.fenix.components.toolbar.ToolbarPosition
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.getPreferenceKey
+import org.mozilla.fenix.nimbus.CookieBannersSection
 import org.mozilla.fenix.nimbus.FxNimbus
 import org.mozilla.fenix.nimbus.HomeScreenSection
 import org.mozilla.fenix.nimbus.Mr2022Section
@@ -82,9 +83,9 @@ class Settings(private val appContext: Context) : PreferencesHolder {
 
         /**
          * The minimum number a search groups should contain.
-         * Filtering is applied depending on the [historyImprovementFeatures] flag value.
          */
-        const val SEARCH_GROUP_MINIMUM_SITES: Int = 2
+        @VisibleForTesting
+        internal var SEARCH_GROUP_MINIMUM_SITES: Int = 2
 
         // The maximum number of top sites to display.
         const val TOP_SITES_MAX_COUNT = 16
@@ -227,11 +228,19 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     )
 
     /**
+     * Indicates if the current legacy wallpaper card colors should be migrated.
+     */
+    var shouldMigrateLegacyWallpaperCardColors by booleanPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_should_migrate_wallpaper_card_colors),
+        default = true,
+    )
+
+    /**
      * Indicates if the wallpaper onboarding dialog should be shown.
      */
     var showWallpaperOnboarding by lazyFeatureFlagPreference(
         key = appContext.getPreferenceKey(R.string.pref_key_wallpapers_onboarding),
-        featureFlag = FeatureFlags.wallpaperOnboardingEnabled,
+        featureFlag = true,
         default = { mr2022Sections[Mr2022Section.WALLPAPERS_SELECTION_TOOL] == true },
     )
 
@@ -443,10 +452,9 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     /**
      * Indicates if the user has enabled the inactive tabs feature.
      */
-    var inactiveTabsAreEnabled by featureFlagPreference(
+    var inactiveTabsAreEnabled by booleanPreference(
         appContext.getPreferenceKey(R.string.pref_key_inactive_tabs),
-        default = FeatureFlags.inactiveTabs,
-        featureFlag = FeatureFlags.inactiveTabs,
+        default = true,
     )
 
     @VisibleForTesting
@@ -528,6 +536,15 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         appContext.getPreferenceKey(R.string.pref_key_tracking_protection),
         default = true,
     )
+
+    var shouldUseCookieBanner by lazyFeatureFlagPreference(
+        appContext.getPreferenceKey(R.string.pref_key_cookie_banner),
+        featureFlag = true,
+        default = { cookieBannersSection[CookieBannersSection.FEATURE_SETTING_VALUE] == true },
+    )
+
+    val shouldShowCookieBannerUI: Boolean
+        get() = cookieBannersSection[CookieBannersSection.FEATURE_UI] == true
 
     /**
      * Declared as a function for performance purposes. This could be declared as a variable using
@@ -611,9 +628,10 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     /**
      * Indicates if the total cookie protection CRF should be shown.
      */
-    var shouldShowTotalCookieProtectionCFR by booleanPreference(
+    var shouldShowTotalCookieProtectionCFR by lazyFeatureFlagPreference(
         appContext.getPreferenceKey(R.string.pref_key_should_show_total_cookie_protection_popup),
-        default = mr2022Sections[Mr2022Section.TCP_CFR] == true,
+        featureFlag = true,
+        default = { mr2022Sections[Mr2022Section.TCP_CFR] == true },
     )
 
     val blockCookiesSelectionInCustomTrackingProtection by stringPreference(
@@ -902,7 +920,7 @@ class Settings(private val appContext: Context) : PreferencesHolder {
      */
     var shouldShowJumpBackInCFR by lazyFeatureFlagPreference(
         appContext.getPreferenceKey(R.string.pref_key_should_show_jump_back_in_tabs_popup),
-        featureFlag = FeatureFlags.showJumpBackInCFR,
+        featureFlag = true,
         default = { mr2022Sections[Mr2022Section.JUMP_BACK_IN_CFR] == true },
     )
 
@@ -1025,11 +1043,6 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     var shouldAutofillLogins by booleanPreference(
         appContext.getPreferenceKey(R.string.pref_key_autofill_logins),
         default = true,
-    )
-
-    var lastPlacesStorageMaintenance by longPreference(
-        appContext.getPreferenceKey(R.string.pref_key_last_maintenance),
-        default = 0,
     )
 
     fun addSearchWidgetInstalled(count: Int) {
@@ -1244,14 +1257,13 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         ).contains(langTag)
     }
 
-    private var isHistoryMetadataEnabled by booleanPreference(
-        appContext.getPreferenceKey(R.string.pref_key_history_metadata_feature),
-        default = false,
-    )
-
     private val mr2022Sections: Map<Mr2022Section, Boolean>
         get() =
             FxNimbus.features.mr2022.value().sectionsEnabled
+
+    private val cookieBannersSection: Map<CookieBannersSection, Boolean>
+        get() =
+            FxNimbus.features.cookieBanners.value().sectionsEnabled
 
     private val homescreenSections: Map<HomeScreenSection, Boolean>
         get() =
@@ -1260,7 +1272,7 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     var historyMetadataUIFeature by lazyFeatureFlagPreference(
         appContext.getPreferenceKey(R.string.pref_key_history_metadata_feature),
         default = { homescreenSections[HomeScreenSection.RECENT_EXPLORATIONS] == true },
-        featureFlag = FeatureFlags.historyMetadataUIFeature || isHistoryMetadataEnabled,
+        featureFlag = true,
     )
 
     /**
@@ -1268,7 +1280,7 @@ class Settings(private val appContext: Context) : PreferencesHolder {
      */
     var showSyncCFR by lazyFeatureFlagPreference(
         appContext.getPreferenceKey(R.string.pref_key_should_show_sync_cfr),
-        featureFlag = FeatureFlags.showSynCFR,
+        featureFlag = true,
         default = { mr2022Sections[Mr2022Section.SYNC_CFR] == true },
     )
 
@@ -1277,28 +1289,26 @@ class Settings(private val appContext: Context) : PreferencesHolder {
      */
     var showHomeOnboardingDialog by lazyFeatureFlagPreference(
         appContext.getPreferenceKey(R.string.pref_key_should_show_home_onboarding_dialog),
-        featureFlag = FeatureFlags.showHomeOnboarding,
+        featureFlag = true,
         default = { mr2022Sections[Mr2022Section.HOME_ONBOARDING_DIALOG_EXISTING_USERS] == true },
     )
 
     /**
      * Indicates if the recent tabs functionality should be visible.
-     * Returns true if the [FeatureFlags.showRecentTabsFeature] and [R.string.pref_key_recent_tabs] are true.
      */
     var showRecentTabsFeature by lazyFeatureFlagPreference(
         appContext.getPreferenceKey(R.string.pref_key_recent_tabs),
-        featureFlag = FeatureFlags.showRecentTabsFeature,
+        featureFlag = true,
         default = { homescreenSections[HomeScreenSection.JUMP_BACK_IN] == true },
     )
 
     /**
      * Indicates if the recent saved bookmarks functionality should be visible.
-     * Returns true if the [FeatureFlags.showRecentTabsFeature] and [R.string.pref_key_recent_bookmarks] are true.
      */
     var showRecentBookmarksFeature by lazyFeatureFlagPreference(
         appContext.getPreferenceKey(R.string.pref_key_recent_bookmarks),
         default = { homescreenSections[HomeScreenSection.RECENTLY_SAVED] == true },
-        featureFlag = FeatureFlags.recentBookmarksFeature,
+        featureFlag = true,
     )
 
     /**
@@ -1375,10 +1385,9 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     /**
      * Indicates if the Task Continuity enhancements are enabled.
      */
-    var enableTaskContinuityEnhancements by featureFlagPreference(
+    var enableTaskContinuityEnhancements by booleanPreference(
         key = appContext.getPreferenceKey(R.string.pref_key_enable_task_continuity),
-        default = FeatureFlags.taskContinuityFeature,
-        featureFlag = FeatureFlags.taskContinuityFeature,
+        default = true,
     )
 
     /**
@@ -1410,4 +1419,29 @@ class Settings(private val appContext: Context) : PreferencesHolder {
             HttpsOnlyMode.ENABLED
         }
     }
+
+    /**
+     * Get the current mode for cookie banner handling
+     */
+    fun getCookieBannerHandling(): CookieBannerHandlingMode {
+        return when (shouldUseCookieBanner) {
+            true -> CookieBannerHandlingMode.REJECT_OR_ACCEPT_ALL
+            false -> CookieBannerHandlingMode.DISABLED
+        }
+    }
+
+    var setAsDefaultGrowthSent by booleanPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_growth_set_as_default),
+        default = false,
+    )
+
+    var resumeGrowthLastSent by longPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_growth_resume_last_sent),
+        default = 0,
+    )
+
+    var uriLoadGrowthLastSent by longPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_growth_uri_load_last_sent),
+        default = 0,
+    )
 }
