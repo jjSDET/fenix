@@ -34,6 +34,10 @@
         app:destination="@id/homeOnboardingDialogFragment" />
 
     <action
+        android:id="@+id/action_global_home_notification_permission_dialog"
+        app:destination="@id/homeNotificationPermissionDialogFragment" />
+
+    <action
         android:id="@+id/action_global_wallpaper_onboarding_dialog"
         app:destination="@id/wallpaperOnboardingDialogFragment"
         app:popUpTo="@id/homeFragment" />
@@ -131,6 +135,9 @@
         android:id="@+id/action_global_trackingProtectionPanelDialogFragment"
         app:destination="@id/trackingProtectionPanelDialogFragment" />
     <action
+        android:id="@+id/action_global_cookieBannerProtectionPanelDialogFragment"
+        app:destination="@id/cookieBannerPanelDialogFragment" />
+    <action
         android:id="@+id/action_global_quickSettingsSheetDialogFragment"
         app:destination="@id/quickSettingsSheetDialogFragment" />
     <action
@@ -192,6 +199,10 @@
     <dialog
         android:id="@+id/homeOnboardingDialogFragment"
         android:name="org.mozilla.fenix.onboarding.HomeOnboardingDialogFragment" />
+
+    <dialog
+        android:id="@+id/homeNotificationPermissionDialogFragment"
+        android:name="org.mozilla.fenix.onboarding.HomeNotificationPermissionDialogFragment" />
 
     <dialog
         android:id="@+id/wallpaperOnboardingDialogFragment"
@@ -256,6 +267,9 @@
         <action
             android:id="@+id/action_browserFragment_to_quickSettingsSheetDialogFragment"
             app:destination="@id/quickSettingsSheetDialogFragment" />
+        <action
+            android:id="@+id/action_browserFragment_to_cookieBannerDialogFragment"
+            app:destination="@id/cookieBannerDialogFragment" />
     </fragment>
 
     <fragment
@@ -803,7 +817,15 @@
     <fragment
         android:id="@+id/secretSettingsPreference"
         android:name="org.mozilla.fenix.settings.SecretSettingsFragment"
-        android:label="@string/preferences_debug_settings" />
+        android:label="@string/preferences_debug_settings">
+        <action
+            android:id="@+id/action_secretSettingsFragment_to_sponsoredStoriesSettings"
+            app:destination="@id/sponsoredStoriesSettings"
+            app:enterAnim="@anim/slide_in_right"
+            app:exitAnim="@anim/slide_out_left"
+            app:popEnterAnim="@anim/slide_in_left"
+            app:popExitAnim="@anim/slide_out_right" />
+    </fragment>
     <fragment
         android:id="@+id/secretInfoSettingsFragment"
         android:name="org.mozilla.fenix.settings.SecretDebugSettingsFragment"
@@ -828,6 +850,10 @@
         android:id="@+id/cookieBannerFragment"
         android:name="org.mozilla.fenix.settings.CookieBannersFragment"
         android:label="@string/preferences_cookie_banner_reduction" />
+    <fragment
+        android:id="@+id/sponsoredStoriesSettings"
+        android:name="org.mozilla.fenix.settings.SponsoredStoriesSettingsFragment"
+        android:label="@string/preferences_debug_settings_custom_sponsored_stories_parameters" />
     <fragment
         android:id="@+id/trackingProtectionFragment"
         android:name="org.mozilla.fenix.settings.TrackingProtectionFragment">
@@ -953,7 +979,13 @@
         <argument
             android:name="isTrackingProtectionEnabled"
             app:argType="boolean" />
+        <argument
+            android:name="isCookieHandlingEnabled"
+            app:argType="boolean" />
     </dialog>
+    <dialog
+        android:id="@+id/cookieBannerDialogFragment"
+        android:name="org.mozilla.fenix.settings.quicksettings.protections.cookiebanners.dialog.CookieBannerReEngagementDialog" />
     <fragment
         android:id="@+id/accountProblemFragment"
         android:name="org.mozilla.fenix.settings.account.AccountProblemFragment">
@@ -977,6 +1009,9 @@
             app:argType="string" />
         <argument
             android:name="trackingProtectionEnabled"
+            app:argType="boolean" />
+        <argument
+            android:name="cookieBannerHandlingEnabled"
             app:argType="boolean" />
         <argument
             android:name="gravity"
@@ -1015,6 +1050,33 @@
             android:name="gravity"
             android:defaultValue="80"
             app:argType="integer" />
+    </dialog>
+
+    <dialog
+        android:id="@+id/cookieBannerPanelDialogFragment"
+        android:name="org.mozilla.fenix.settings.quicksettings.protections.cookiebanners.CookieBannerPanelDialogFragment"
+        tools:layout="@layout/quicksettings_website_info">
+        <argument
+            android:name="sessionId"
+            app:argType="string" />
+        <argument
+            android:name="url"
+            app:argType="string" />
+        <argument
+            android:name="trackingProtectionEnabled"
+            app:argType="boolean" />
+        <argument
+            android:name="cookieBannerHandlingEnabled"
+            app:argType="boolean" />
+        <argument
+            android:name="gravity"
+            android:defaultValue="80"
+            app:argType="integer" />
+        <argument
+            android:name="sitePermissions"
+            app:argType="mozilla.components.concept.engine.permission.SitePermissions"
+            app:nullable="true" />
+
     </dialog>
     <fragment
         android:id="@+id/trackingProtectionBlockingFragment"

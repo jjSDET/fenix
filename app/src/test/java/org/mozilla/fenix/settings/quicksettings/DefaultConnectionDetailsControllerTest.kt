@@ -17,13 +17,17 @@ import io.mockk.spyk
 import io.mockk.verify
 import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.browser.state.state.createTab
+import mozilla.components.concept.engine.cookiehandling.CookieBannersStorage
 import mozilla.components.concept.engine.permission.SitePermissions
 import mozilla.components.feature.session.TrackingProtectionUseCases
 import mozilla.components.support.test.robolectric.testContext
+import mozilla.components.support.test.rule.MainCoroutineRule
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mozilla.fenix.ext.components
+import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
 
 @RunWith(FenixRobolectricTestRunner::class)
@@ -40,11 +44,18 @@ class DefaultConnectionDetailsControllerTest {
     @MockK(relaxed = true)
     private lateinit var sitePermissions: SitePermissions
 
+    @MockK(relaxed = true)
+    private lateinit var cookieBannersStorage: CookieBannersStorage
+
     private lateinit var controller: DefaultConnectionDetailsController
 
     private lateinit var tab: TabSessionState
 
     private var gravity = 54
+
+    @get:Rule
+    val coroutinesTestRule = MainCoroutineRule()
+    private val scope = coroutinesTestRule.scope
 
     @Before
     fun setUp() {
@@ -55,6 +66,8 @@ class DefaultConnectionDetailsControllerTest {
         controller = DefaultConnectionDetailsController(
             fragment = fragment,
             context = context,
+            ioScope = scope,
+            cookieBannersStorage = cookieBannersStorage,
             navController = { navController },
             sitePermissions = sitePermissions,
             gravity = gravity,
@@ -75,6 +88,8 @@ class DefaultConnectionDetailsControllerTest {
 
     @Test
     fun `WHEN handleBackPressed is called THEN should call popBackStack and navigate`() {
+        every { context.settings().shouldUseCookieBanner } returns true
+
         controller.handleBackPressed()
 
         verify {

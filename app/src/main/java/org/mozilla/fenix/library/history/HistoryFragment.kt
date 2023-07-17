@@ -34,8 +34,10 @@ import kotlinx.coroutines.launch
 import mozilla.components.concept.engine.prompt.ShareData
 import mozilla.components.lib.state.ext.consumeFrom
 import mozilla.components.lib.state.ext.flowScoped
+import mozilla.components.service.fxa.SyncEngine
 import mozilla.components.service.fxa.sync.SyncReason
 import mozilla.components.support.base.feature.UserInteractionHandler
+import mozilla.components.support.ktx.kotlin.toShortUrl
 import mozilla.telemetry.glean.private.NoExtras
 import org.mozilla.fenix.BrowserDirection
 import org.mozilla.fenix.HomeActivity
@@ -52,7 +54,6 @@ import org.mozilla.fenix.ext.nav
 import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.ext.runIfFragmentIsAttached
 import org.mozilla.fenix.ext.setTextColor
-import org.mozilla.fenix.ext.toShortUrl
 import org.mozilla.fenix.library.LibraryPageFragment
 import org.mozilla.fenix.utils.allowUndo
 import org.mozilla.fenix.GleanMetrics.History as GleanHistory
@@ -368,7 +369,11 @@ class HistoryFragment : LibraryPageFragment<History>(), UserInteractionHandler, 
     @Suppress("UnusedPrivateMember")
     private suspend fun syncHistory() {
         val accountManager = requireComponents.backgroundServices.accountManager
-        accountManager.syncNow(SyncReason.User)
+        accountManager.syncNow(
+            reason = SyncReason.User,
+            debounce = true,
+            customEngineSubset = listOf(SyncEngine.History),
+        )
         historyView.historyAdapter.refresh()
     }
 

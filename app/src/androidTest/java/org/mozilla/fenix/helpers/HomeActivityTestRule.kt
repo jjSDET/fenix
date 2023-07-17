@@ -6,6 +6,7 @@
 
 package org.mozilla.fenix.helpers
 
+import android.content.Intent
 import android.view.ViewConfiguration.getLongPressTimeout
 import androidx.test.espresso.intent.rule.IntentsTestRule
 import androidx.test.rule.ActivityTestRule
@@ -47,6 +48,7 @@ class HomeActivityTestRule(
         isTCPCFREnabled: Boolean = settings.shouldShowTotalCookieProtectionCFR,
         isWallpaperOnboardingEnabled: Boolean = settings.showWallpaperOnboarding,
         isDeleteSitePermissionsEnabled: Boolean = settings.deleteSitePermissions,
+        isCookieBannerReductionDialogEnabled: Boolean = !settings.userOptOutOfReEngageCookieBannerDialog,
         etpPolicy: ETPPolicy = getETPPolicy(settings),
     ) : this(initialTouchMode, launchActivity, skipOnboarding) {
         this.isHomeOnboardingDialogEnabled = isHomeOnboardingDialogEnabled
@@ -58,6 +60,7 @@ class HomeActivityTestRule(
         this.isTCPCFREnabled = isTCPCFREnabled
         this.isWallpaperOnboardingEnabled = isWallpaperOnboardingEnabled
         this.isDeleteSitePermissionsEnabled = isDeleteSitePermissionsEnabled
+        this.isCookieBannerReductionDialogEnabled = isCookieBannerReductionDialogEnabled
         this.etpPolicy = etpPolicy
     }
 
@@ -110,6 +113,7 @@ class HomeActivityTestRule(
             isPWAsPromptEnabled = false,
             isTCPCFREnabled = false,
             isWallpaperOnboardingEnabled = false,
+            isCookieBannerReductionDialogEnabled = false,
         )
     }
 }
@@ -145,6 +149,7 @@ class HomeActivityIntentTestRule internal constructor(
         isTCPCFREnabled: Boolean = settings.shouldShowTotalCookieProtectionCFR,
         isWallpaperOnboardingEnabled: Boolean = settings.showWallpaperOnboarding,
         isDeleteSitePermissionsEnabled: Boolean = settings.deleteSitePermissions,
+        isCookieBannerReductionDialogEnabled: Boolean = !settings.userOptOutOfReEngageCookieBannerDialog,
         etpPolicy: ETPPolicy = getETPPolicy(settings),
     ) : this(initialTouchMode, launchActivity, skipOnboarding) {
         this.isHomeOnboardingDialogEnabled = isHomeOnboardingDialogEnabled
@@ -156,10 +161,13 @@ class HomeActivityIntentTestRule internal constructor(
         this.isTCPCFREnabled = isTCPCFREnabled
         this.isWallpaperOnboardingEnabled = isWallpaperOnboardingEnabled
         this.isDeleteSitePermissionsEnabled = isDeleteSitePermissionsEnabled
+        this.isCookieBannerReductionDialogEnabled = isCookieBannerReductionDialogEnabled
         this.etpPolicy = etpPolicy
     }
 
     private val longTapUserPreference = getLongPressTimeout()
+
+    private lateinit var intent: Intent
 
     /**
      * Update settings after the activity was created.
@@ -169,6 +177,19 @@ class HomeActivityIntentTestRule internal constructor(
             settings(this)
             applyFlagUpdates()
         }
+    }
+
+    override fun getActivityIntent(): Intent? {
+        return if (this::intent.isInitialized) {
+            this.intent
+        } else {
+            super.getActivityIntent()
+        }
+    }
+
+    fun withIntent(intent: Intent): HomeActivityIntentTestRule {
+        this.intent = intent
+        return this
     }
 
     override fun beforeActivityLaunched() {
@@ -202,6 +223,7 @@ class HomeActivityIntentTestRule internal constructor(
         isTCPCFREnabled = settings.shouldShowTotalCookieProtectionCFR
         isWallpaperOnboardingEnabled = settings.showWallpaperOnboarding
         isDeleteSitePermissionsEnabled = settings.deleteSitePermissions
+        isCookieBannerReductionDialogEnabled = !settings.userOptOutOfReEngageCookieBannerDialog
         etpPolicy = getETPPolicy(settings)
     }
 
@@ -228,6 +250,7 @@ class HomeActivityIntentTestRule internal constructor(
             isPWAsPromptEnabled = false,
             isTCPCFREnabled = false,
             isWallpaperOnboardingEnabled = false,
+            isCookieBannerReductionDialogEnabled = false,
         )
     }
 }

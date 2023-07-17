@@ -75,6 +75,7 @@ class AddLoginFragment : Fragment(R.layout.fragment_add_login), MenuProvider {
                 lifecycleScope = lifecycleScope,
                 navController = findNavController(),
                 loginsFragmentStore = loginsFragmentStore,
+                clipboardHandler = requireContext().components.clipboardHandler,
             ),
         )
 
@@ -160,18 +161,19 @@ class AddLoginFragment : Fragment(R.layout.fragment_add_login), MenuProvider {
                         hostnameText.isEmpty() -> {
                             setHostnameError()
                             binding.clearHostnameTextButton.isEnabled = false
+                            binding.clearHostnameTextButton.isVisible = false
                         }
                         !Patterns.WEB_URL.matcher(hostnameText).matches() -> {
                             setHostnameError()
                             binding.clearHostnameTextButton.isEnabled = true
+                            binding.clearHostnameTextButton.isVisible = false
                         }
                         else -> {
                             validHostname = true
-
                             binding.clearHostnameTextButton.isEnabled = true
                             binding.inputLayoutHostname.error = null
                             binding.inputLayoutHostname.errorIconDrawable = null
-
+                            binding.clearHostnameTextButton.isVisible = true
                             findDuplicate()
                         }
                     }
@@ -195,8 +197,10 @@ class AddLoginFragment : Fragment(R.layout.fragment_add_login), MenuProvider {
 
         binding.usernameText.addTextChangedListener(
             object : TextWatcher {
-                override fun afterTextChanged(u: Editable?) {
-                    usernameChanged = true
+                override fun afterTextChanged(editable: Editable?) {
+                    // update usernameChanged to true when the text is not empty,
+                    // otherwise it is not changed, as this screen starts with an empty username.
+                    usernameChanged = editable.toString().isNotEmpty()
                     updateUsernameField()
                     setSaveButtonState()
                     findDuplicate()
@@ -230,6 +234,7 @@ class AddLoginFragment : Fragment(R.layout.fragment_add_login), MenuProvider {
                             binding.inputLayoutPassword.error = null
                             binding.inputLayoutPassword.errorIconDrawable = null
                             binding.clearPasswordTextButton.isVisible = true
+                            binding.clearPasswordTextButton.isEnabled = true
                         }
                     }
                     setSaveButtonState()

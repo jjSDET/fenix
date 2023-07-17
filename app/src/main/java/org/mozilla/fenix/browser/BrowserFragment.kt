@@ -11,11 +11,18 @@ import android.view.ViewGroup
 import androidx.annotation.VisibleForTesting
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.lifecycle.Observer
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import com.google.android.material.snackbar.Snackbar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import mozilla.components.browser.state.selector.findCustomTabOrSelectedTab
 import mozilla.components.browser.state.selector.findTab
 import mozilla.components.browser.state.state.SessionState
 import mozilla.components.browser.state.state.TabSessionState
+import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.browser.thumbnails.BrowserThumbnails
 import mozilla.components.browser.toolbar.BrowserToolbar
 import mozilla.components.concept.engine.permission.SitePermissions
@@ -24,19 +31,24 @@ import mozilla.components.feature.contextmenu.ContextMenuCandidate
 import mozilla.components.feature.readerview.ReaderViewFeature
 import mozilla.components.feature.tab.collections.TabCollection
 import mozilla.components.feature.tabs.WindowFeature
+import mozilla.components.lib.state.ext.consumeFlow
 import mozilla.components.service.glean.private.NoExtras
 import mozilla.components.support.base.feature.UserInteractionHandler
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
+import mozilla.components.support.ktx.kotlinx.coroutines.flow.ifAnyChanged
 import org.mozilla.fenix.GleanMetrics.ReaderMode
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.FenixSnackbar
 import org.mozilla.fenix.components.TabCollectionStorage
+import org.mozilla.fenix.components.toolbar.BrowserToolbarView
 import org.mozilla.fenix.components.toolbar.ToolbarMenu
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.nav
 import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.ext.runIfFragmentIsAttached
 import org.mozilla.fenix.ext.settings
+import org.mozilla.fenix.nimbus.FxNimbus
+import org.mozilla.fenix.settings.quicksettings.protections.cookiebanners.dialog.CookieBannerReEngagementDialogUtils
 import org.mozilla.fenix.shortcut.PwaOnboardingObserver
 import org.mozilla.fenix.theme.ThemeManager
 
@@ -51,6 +63,11 @@ class BrowserFragment : BaseBrowserFragment(), UserInteractionHandler {
 
     private var readerModeAvailable = false
     private var pwaOnboardingObserver: PwaOnboardingObserver? = null
+
+    private var forwardAction: BrowserToolbar.TwoStateButton? = null
+    private var backAction: BrowserToolbar.TwoStateButton? = null
+    private var refreshAction: BrowserToolbar.TwoStateButton? = null
+    private var isTablet: Boolean = false
 
     @Suppress("LongMethod")
     override fun initializeUI(view: View, tab: SessionState) {
@@ -84,86 +101,7 @@ class BrowserFragment : BaseBrowserFragment(), UserInteractionHandler {
 
         browserToolbarView.view.addNavigationAction(homeAction)
 
-        if (resources.getBoolean(R.bool.tablet)) {
-            val enableTint = ThemeManager.resolveAttribute(R.attr.textPrimary, context)
-            val disableTint = ThemeManager.resolveAttribute(R.attr.textDisabled, context)
-            val backAction = BrowserToolbar.TwoStateButton(
-                primaryImage = AppCompatResources.getDrawable(
-                    context,
-                    R.drawable.mozac_ic_back,
-                )!!,
-                primaryContentDescription = context.getString(R.string.browser_menu_back),
-                primaryImageTintResource = enableTint,
-                isInPrimaryState = { getCurrentTab()?.content?.canGoBack ?: false },
-                secondaryImageTintResource = disableTint,
-                disableInSecondaryState = true,
-                longClickListener = {
-                    browserToolbarInteractor.onBrowserToolbarMenuItemTapped(
-                        ToolbarMenu.Item.Back(viewHistory = true),
-                    )
-                },
-                listener = {
-                    browserToolbarInteractor.onBrowserToolbarMenuItemTapped(
-                        ToolbarMenu.Item.Back(viewHistory = false),
-                    )
-                },
-            )
-            browserToolbarView.view.addNavigationAction(backAction)
-            val forwardAction = BrowserToolbar.TwoStateButton(
-                primaryImage = AppCompatResources.getDrawable(
-                    context,
-                    R.drawable.mozac_ic_forward,
-                )!!,
-                primaryContentDescription = context.getString(R.string.browser_menu_forward),
-                primaryImageTintResource = enableTint,
-                isInPrimaryState = { getCurrentTab()?.content?.canGoForward ?: false },
-                secondaryImageTintResource = disableTint,
-                disableInSecondaryState = true,
-                longClickListener = {
-                    browserToolbarInteractor.onBrowserToolbarMenuItemTapped(
-                        ToolbarMenu.Item.Forward(viewHistory = true),
-                    )
-                },
-                listener = {
-                    browserToolbarInteractor.onBrowserToolbarMenuItemTapped(
-                        ToolbarMenu.Item.Forward(viewHistory = false),
-                    )
-                },
-            )
-            browserToolbarView.view.addNavigationAction(forwardAction)
-            val refreshAction = BrowserToolbar.TwoStateButton(
-                primaryImage = AppCompatResources.getDrawable(
-                    context,
-                    R.drawable.mozac_ic_refresh,
-                )!!,
-                primaryContentDescription = context.getString(R.string.browser_menu_refresh),
-                primaryImageTintResource = enableTint,
-                isInPrimaryState = {
-                    getCurrentTab()?.content?.loading == false
-                },
-                secondaryImage = AppCompatResources.getDrawable(
-                    context,
-                    R.drawable.mozac_ic_stop,
-                )!!,
-                secondaryContentDescription = context.getString(R.string.browser_menu_stop),
-                disableInSecondaryState = false,
-                longClickListener = {
-                    browserToolbarInteractor.onBrowserToolbarMenuItemTapped(
-                        ToolbarMenu.Item.Reload(bypassCache = true),
-                    )
-                },
-                listener = {
-                    if (getCurrentTab()?.content?.loading == true) {
-                        browserToolbarInteractor.onBrowserToolbarMenuItemTapped(ToolbarMenu.Item.Stop)
-                    } else {
-                        browserToolbarInteractor.onBrowserToolbarMenuItemTapped(
-                            ToolbarMenu.Item.Reload(bypassCache = false),
-                        )
-                    }
-                },
-            )
-            browserToolbarView.view.addNavigationAction(refreshAction)
-        }
+        updateToolbarActions(isTablet = resources.getBoolean(R.bool.tablet))
 
         val readerModeAction =
             BrowserToolbar.ToggleButton(
@@ -241,6 +179,144 @@ class BrowserFragment : BaseBrowserFragment(), UserInteractionHandler {
                 view = view,
             )
         }
+        if (!context.settings().shouldUseCookieBanner && !context.settings().userOptOutOfReEngageCookieBannerDialog) {
+            observeCookieBannerHandlingState(context.components.core.store)
+        }
+    }
+
+    override fun onUpdateToolbarForConfigurationChange(toolbar: BrowserToolbarView) {
+        super.onUpdateToolbarForConfigurationChange(toolbar)
+
+        updateToolbarActions(isTablet = resources.getBoolean(R.bool.tablet))
+    }
+
+    @VisibleForTesting
+    internal fun updateToolbarActions(isTablet: Boolean) {
+        if (isTablet == this.isTablet) return
+
+        if (isTablet) {
+            addTabletActions(requireContext())
+        } else {
+            removeTabletActions()
+        }
+
+        this.isTablet = isTablet
+    }
+
+    @Suppress("LongMethod")
+    private fun addTabletActions(context: Context) {
+        val enableTint = ThemeManager.resolveAttribute(R.attr.textPrimary, context)
+        val disableTint = ThemeManager.resolveAttribute(R.attr.textDisabled, context)
+
+        if (backAction == null) {
+            backAction = BrowserToolbar.TwoStateButton(
+                primaryImage = AppCompatResources.getDrawable(
+                    context,
+                    R.drawable.mozac_ic_back,
+                )!!,
+                primaryContentDescription = context.getString(R.string.browser_menu_back),
+                primaryImageTintResource = enableTint,
+                isInPrimaryState = { getCurrentTab()?.content?.canGoBack ?: false },
+                secondaryImageTintResource = disableTint,
+                disableInSecondaryState = true,
+                longClickListener = {
+                    browserToolbarInteractor.onBrowserToolbarMenuItemTapped(
+                        ToolbarMenu.Item.Back(viewHistory = true),
+                    )
+                },
+                listener = {
+                    browserToolbarInteractor.onBrowserToolbarMenuItemTapped(
+                        ToolbarMenu.Item.Back(viewHistory = false),
+                    )
+                },
+            )
+        }
+
+        backAction?.let {
+            browserToolbarView.view.addNavigationAction(it)
+        }
+
+        if (forwardAction == null) {
+            forwardAction = BrowserToolbar.TwoStateButton(
+                primaryImage = AppCompatResources.getDrawable(
+                    context,
+                    R.drawable.mozac_ic_forward,
+                )!!,
+                primaryContentDescription = context.getString(R.string.browser_menu_forward),
+                primaryImageTintResource = enableTint,
+                isInPrimaryState = { getCurrentTab()?.content?.canGoForward ?: false },
+                secondaryImageTintResource = disableTint,
+                disableInSecondaryState = true,
+                longClickListener = {
+                    browserToolbarInteractor.onBrowserToolbarMenuItemTapped(
+                        ToolbarMenu.Item.Forward(viewHistory = true),
+                    )
+                },
+                listener = {
+                    browserToolbarInteractor.onBrowserToolbarMenuItemTapped(
+                        ToolbarMenu.Item.Forward(viewHistory = false),
+                    )
+                },
+            )
+        }
+
+        forwardAction?.let {
+            browserToolbarView.view.addNavigationAction(it)
+        }
+
+        if (refreshAction == null) {
+            refreshAction = BrowserToolbar.TwoStateButton(
+                primaryImage = AppCompatResources.getDrawable(
+                    context,
+                    R.drawable.mozac_ic_refresh,
+                )!!,
+                primaryContentDescription = context.getString(R.string.browser_menu_refresh),
+                primaryImageTintResource = enableTint,
+                isInPrimaryState = {
+                    getCurrentTab()?.content?.loading == false
+                },
+                secondaryImage = AppCompatResources.getDrawable(
+                    context,
+                    R.drawable.mozac_ic_stop,
+                )!!,
+                secondaryContentDescription = context.getString(R.string.browser_menu_stop),
+                disableInSecondaryState = false,
+                longClickListener = {
+                    browserToolbarInteractor.onBrowserToolbarMenuItemTapped(
+                        ToolbarMenu.Item.Reload(bypassCache = true),
+                    )
+                },
+                listener = {
+                    if (getCurrentTab()?.content?.loading == true) {
+                        browserToolbarInteractor.onBrowserToolbarMenuItemTapped(ToolbarMenu.Item.Stop)
+                    } else {
+                        browserToolbarInteractor.onBrowserToolbarMenuItemTapped(
+                            ToolbarMenu.Item.Reload(bypassCache = false),
+                        )
+                    }
+                },
+            )
+        }
+
+        refreshAction?.let {
+            browserToolbarView.view.addNavigationAction(it)
+        }
+
+        browserToolbarView.view.invalidateActions()
+    }
+
+    private fun removeTabletActions() {
+        forwardAction?.let {
+            browserToolbarView.view.removeNavigationAction(it)
+        }
+        backAction?.let {
+            browserToolbarView.view.removeNavigationAction(it)
+        }
+        refreshAction?.let {
+            browserToolbarView.view.removeNavigationAction(it)
+        }
+
+        browserToolbarView.view.invalidateActions()
     }
 
     override fun onStart() {
@@ -261,6 +337,7 @@ class BrowserFragment : BaseBrowserFragment(), UserInteractionHandler {
         }
 
         subscribeToTabCollections()
+        updateLastBrowseActivity()
     }
 
     override fun onStop() {
@@ -297,22 +374,40 @@ class BrowserFragment : BaseBrowserFragment(), UserInteractionHandler {
     }
 
     override fun navToQuickSettingsSheet(tab: SessionState, sitePermissions: SitePermissions?) {
-        requireComponents.useCases.trackingProtectionUseCases.containsException(tab.id) { contains ->
-            runIfFragmentIsAttached {
-                val isTrackingProtectionEnabled = tab.trackingProtection.enabled && !contains
-                val directions =
-                    BrowserFragmentDirections.actionBrowserFragmentToQuickSettingsSheetDialogFragment(
-                        sessionId = tab.id,
-                        url = tab.content.url,
-                        title = tab.content.title,
-                        isSecured = tab.content.securityInfo.secure,
-                        sitePermissions = sitePermissions,
-                        gravity = getAppropriateLayoutGravity(),
-                        certificateName = tab.content.securityInfo.issuer,
-                        permissionHighlights = tab.content.permissionHighlights,
-                        isTrackingProtectionEnabled = isTrackingProtectionEnabled,
-                    )
-                nav(R.id.browserFragment, directions)
+        val useCase = requireComponents.useCases.trackingProtectionUseCases
+        FxNimbus.features.cookieBanners.recordExposure()
+        useCase.containsException(tab.id) { hasTrackingProtectionException ->
+            lifecycleScope.launch(Dispatchers.Main) {
+                val cookieBannersStorage = requireComponents.core.cookieBannersStorage
+                val hasCookieBannerException =
+                    if (requireContext().settings().shouldUseCookieBanner) {
+                        withContext(Dispatchers.IO) {
+                            cookieBannersStorage.hasException(
+                                tab.content.url,
+                                tab.content.private,
+                            )
+                        }
+                    } else {
+                        false
+                    }
+                runIfFragmentIsAttached {
+                    val isTrackingProtectionEnabled =
+                        tab.trackingProtection.enabled && !hasTrackingProtectionException
+                    val directions =
+                        BrowserFragmentDirections.actionBrowserFragmentToQuickSettingsSheetDialogFragment(
+                            sessionId = tab.id,
+                            url = tab.content.url,
+                            title = tab.content.title,
+                            isSecured = tab.content.securityInfo.secure,
+                            sitePermissions = sitePermissions,
+                            gravity = getAppropriateLayoutGravity(),
+                            certificateName = tab.content.securityInfo.issuer,
+                            permissionHighlights = tab.content.permissionHighlights,
+                            isTrackingProtectionEnabled = isTrackingProtectionEnabled,
+                            isCookieHandlingEnabled = !hasCookieBannerException,
+                        )
+                    nav(R.id.browserFragment, directions)
+                }
             }
         }
     }
@@ -347,7 +442,7 @@ class BrowserFragment : BaseBrowserFragment(), UserInteractionHandler {
                     }
                 }
                 FenixSnackbar.make(
-                    view = binding.browserLayout,
+                    view = binding.dynamicSnackbarContainer,
                     duration = Snackbar.LENGTH_SHORT,
                     isDisplayedWithBrowserToolbar = true,
                 )
@@ -394,5 +489,23 @@ class BrowserFragment : BaseBrowserFragment(), UserInteractionHandler {
     @VisibleForTesting
     internal fun updateLastBrowseActivity() {
         requireContext().settings().lastBrowseActivity = System.currentTimeMillis()
+    }
+
+    private fun observeCookieBannerHandlingState(store: BrowserStore) {
+        consumeFlow(store) { flow ->
+            flow.mapNotNull { state ->
+                state.findCustomTabOrSelectedTab(customTabSessionId)
+            }.ifAnyChanged { tab ->
+                arrayOf(
+                    tab.cookieBanner,
+                )
+            }.collect {
+                CookieBannerReEngagementDialogUtils.tryToShowReEngagementDialog(
+                    settings = requireContext().settings(),
+                    status = it.cookieBanner,
+                    navController = findNavController(),
+                )
+            }
+        }
     }
 }

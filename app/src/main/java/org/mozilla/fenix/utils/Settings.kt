@@ -76,7 +76,10 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         private const val INACTIVE_TAB_MINIMUM_TO_SHOW_AUTO_CLOSE_DIALOG = 20
 
         const val FOUR_HOURS_MS = 60 * 60 * 4 * 1000L
+        const val ONE_MINUTE_MS = 60 * 1000L
+        const val ONE_HOUR_MS = 60 * ONE_MINUTE_MS
         const val ONE_DAY_MS = 60 * 60 * 24 * 1000L
+        const val TWO_DAYS_MS = 2 * ONE_DAY_MS
         const val THREE_DAYS_MS = 3 * ONE_DAY_MS
         const val ONE_WEEK_MS = 60 * 60 * 24 * 7 * 1000L
         const val ONE_MONTH_MS = (60 * 60 * 24 * 365 * 1000L) / 12
@@ -401,14 +404,22 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         default = true,
     )
 
+    var nimbusLastFetchTime: Long by longPreference(
+        appContext.getPreferenceKey(R.string.pref_key_nimbus_last_fetch),
+        default = 0L,
+    )
+
     /**
      * Indicates the last time when the user was interacting with the [BrowserFragment],
      * This is useful to determine if the user has to start on the [HomeFragment]
      * or it should go directly to the [BrowserFragment].
+     *
+     * This value defaults to 0L because we want to know if the user never had any interaction
+     * with the [BrowserFragment]
      */
     var lastBrowseActivity by longPreference(
         appContext.getPreferenceKey(R.string.pref_key_last_browse_activity_time),
-        default = timeNowInMillis(),
+        default = 0L,
     )
 
     /**
@@ -538,13 +549,53 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     )
 
     var shouldUseCookieBanner by lazyFeatureFlagPreference(
-        appContext.getPreferenceKey(R.string.pref_key_cookie_banner),
+        appContext.getPreferenceKey(R.string.pref_key_cookie_banner_v1),
         featureFlag = true,
-        default = { cookieBannersSection[CookieBannersSection.FEATURE_SETTING_VALUE] == true },
+        default = { cookieBannersSection[CookieBannersSection.FEATURE_SETTING_VALUE] == 1 },
+    )
+
+    var userOptOutOfReEngageCookieBannerDialog by booleanPreference(
+        appContext.getPreferenceKey(R.string.pref_key_cookie_banner_re_engage_dialog_dismissed),
+        default = false,
+    )
+
+    var lastInteractionWithReEngageCookieBannerDialogInMs by longPreference(
+        appContext.getPreferenceKey(
+            R.string.pref_key_cookie_banner_re_engage_dialog_last_interaction_in_ms,
+        ),
+        default = 0L,
+    )
+
+    var cookieBannerDetectedPreviously by booleanPreference(
+        appContext.getPreferenceKey(R.string.pref_key_cookie_banner_first_banner_detected),
+        default = false,
     )
 
     val shouldShowCookieBannerUI: Boolean
-        get() = cookieBannersSection[CookieBannersSection.FEATURE_UI] == true
+        get() = cookieBannersSection[CookieBannersSection.FEATURE_UI] == 1
+
+    /**
+     * Indicates after how many hours a cookie banner dialog should be shown again
+     */
+    @VisibleForTesting
+    internal val timerForCookieBannerDialog: Long
+        get() = 60 * 60 * 1000L *
+            (cookieBannersSection[CookieBannersSection.DIALOG_RE_ENGAGE_TIME] ?: 4)
+
+    /**
+     * Indicates if we should should show the cookie banner dialog that invites the user to turn-on
+     * the setting.
+     */
+    fun shouldCookieBannerReEngagementDialog(): Boolean {
+        val shouldShowDialog =
+            shouldShowCookieBannerUI && !userOptOutOfReEngageCookieBannerDialog && !shouldUseCookieBanner
+        return if (!shouldShowTotalCookieProtectionCFR && shouldShowDialog) {
+            !cookieBannerDetectedPreviously ||
+                timeNowInMillis() - lastInteractionWithReEngageCookieBannerDialogInMs >= timerForCookieBannerDialog
+        } else {
+            false
+        }
+    }
 
     /**
      * Declared as a function for performance purposes. This could be declared as a variable using
@@ -578,6 +629,34 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     fun shouldShowDefaultBrowserNotification(): Boolean {
         return !defaultBrowserNotificationDisplayed && !isDefaultBrowserBlocking()
     }
+
+    var reEngagementNotificationShown by booleanPreference(
+        appContext.getPreferenceKey(R.string.pref_key_re_engagement_notification_shown),
+        default = false,
+    )
+
+    /**
+     * Check if we should set the re-engagement notification.
+     */
+    fun shouldSetReEngagementNotification(): Boolean {
+        return numberOfAppLaunches <= 1 && !reEngagementNotificationShown
+    }
+
+    /**
+     * Check if we should show the re-engagement notification.
+     */
+    fun shouldShowReEngagementNotification(): Boolean {
+        return !reEngagementNotificationShown && !isDefaultBrowserBlocking()
+    }
+
+    /**
+     * Indicates if the re-engagement notification feature is enabled
+     */
+    var reEngagementNotificationEnabled by lazyFeatureFlagPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_re_engagement_notification_enabled),
+        default = { FxNimbus.features.reEngagementNotification.value().enabled },
+        featureFlag = true,
+    )
 
     val shouldUseAutoBatteryTheme by booleanPreference(
         appContext.getPreferenceKey(R.string.pref_key_auto_battery_theme),
@@ -623,7 +702,10 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     )
 
     val enabledTotalCookieProtection: Boolean
-        get() = mr2022Sections[Mr2022Section.TCP_FEATURE] == true
+        get() = Config.channel.isNightlyOrDebug || mr2022Sections[Mr2022Section.TCP_FEATURE] == true
+
+    private val enabledTotalCookieProtectionCFR: Boolean
+        get() = Config.channel.isNightlyOrDebug || mr2022Sections[Mr2022Section.TCP_CFR] == true
 
     /**
      * Indicates if the total cookie protection CRF should be shown.
@@ -631,7 +713,7 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     var shouldShowTotalCookieProtectionCFR by lazyFeatureFlagPreference(
         appContext.getPreferenceKey(R.string.pref_key_should_show_total_cookie_protection_popup),
         featureFlag = true,
-        default = { mr2022Sections[Mr2022Section.TCP_CFR] == true },
+        default = { enabledTotalCookieProtectionCFR },
     )
 
     val blockCookiesSelectionInCustomTrackingProtection by stringPreference(
@@ -1261,7 +1343,7 @@ class Settings(private val appContext: Context) : PreferencesHolder {
         get() =
             FxNimbus.features.mr2022.value().sectionsEnabled
 
-    private val cookieBannersSection: Map<CookieBannersSection, Boolean>
+    private val cookieBannersSection: Map<CookieBannersSection, Int>
         get() =
             FxNimbus.features.cookieBanners.value().sectionsEnabled
 
@@ -1375,6 +1457,38 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     )
 
     /**
+     *  Whether or not to display the Pocket sponsored stories parameter secret settings.
+     */
+    var useCustomConfigurationForSponsoredStories by booleanPreference(
+        appContext.getPreferenceKey(R.string.pref_key_custom_sponsored_stories_parameters_enabled),
+        default = false,
+    )
+
+    /**
+     * Site parameter used to set the spoc content.
+     */
+    var pocketSponsoredStoriesSiteId by stringPreference(
+        appContext.getPreferenceKey(R.string.pref_key_custom_sponsored_stories_site_id),
+        default = "",
+    )
+
+    /**
+     * Country parameter used to set the spoc content.
+     */
+    var pocketSponsoredStoriesCountry by stringPreference(
+        appContext.getPreferenceKey(R.string.pref_key_custom_sponsored_stories_country),
+        default = "",
+    )
+
+    /**
+     * City parameter used to set the spoc content.
+     */
+    var pocketSponsoredStoriesCity by stringPreference(
+        appContext.getPreferenceKey(R.string.pref_key_custom_sponsored_stories_city),
+        default = "",
+    )
+
+    /**
      * Indicates if the Contile functionality should be visible.
      */
     var showContileFeature by booleanPreference(
@@ -1395,7 +1509,7 @@ class Settings(private val appContext: Context) : PreferencesHolder {
      */
     var showUnifiedSearchFeature by lazyFeatureFlagPreference(
         key = appContext.getPreferenceKey(R.string.pref_key_show_unified_search),
-        default = { FxNimbus.features.unifiedSearch.value(appContext).enabled },
+        default = { FxNimbus.features.unifiedSearch.value().enabled },
         featureFlag = FeatureFlags.unifiedSearchFeature,
     )
 
@@ -1405,6 +1519,23 @@ class Settings(private val appContext: Context) : PreferencesHolder {
     var homescreenBlocklist by stringSetPreference(
         appContext.getPreferenceKey(R.string.pref_key_home_blocklist),
         default = setOf(),
+    )
+
+    /**
+     * Indicates if notification pre permission prompt feature is enabled.
+     */
+    var notificationPrePermissionPromptEnabled by lazyFeatureFlagPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_notification_pre_permission_prompt_enabled),
+        default = { FxNimbus.features.prePermissionNotificationPrompt.value().enabled },
+        featureFlag = FeatureFlags.notificationPrePermissionPromptEnabled,
+    )
+
+    /**
+     * Indicates if notification permission prompt has been shown to the user.
+     */
+    var isNotificationPrePermissionShown by booleanPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_is_notification_pre_permission_prompt_shown),
+        default = false,
     )
 
     /**
@@ -1425,13 +1556,54 @@ class Settings(private val appContext: Context) : PreferencesHolder {
      */
     fun getCookieBannerHandling(): CookieBannerHandlingMode {
         return when (shouldUseCookieBanner) {
-            true -> CookieBannerHandlingMode.REJECT_OR_ACCEPT_ALL
-            false -> CookieBannerHandlingMode.DISABLED
+            true -> CookieBannerHandlingMode.REJECT_ALL
+            false -> if (shouldEnabledCookieBannerDetectOnlyMode()) {
+                CookieBannerHandlingMode.REJECT_ALL
+            } else {
+                CookieBannerHandlingMode.DISABLED
+            }
         }
+    }
+
+    /**
+     * Indicates if the cookie banner detect only mode should be enabled.
+     */
+    fun shouldEnabledCookieBannerDetectOnlyMode(): Boolean {
+        val tcpCFRAlreadyShown = if (enabledTotalCookieProtectionCFR) {
+            !userOptOutOfReEngageCookieBannerDialog
+        } else {
+            true
+        }
+        return shouldShowCookieBannerUI && tcpCFRAlreadyShown && !shouldUseCookieBanner
     }
 
     var setAsDefaultGrowthSent by booleanPreference(
         key = appContext.getPreferenceKey(R.string.pref_key_growth_set_as_default),
+        default = false,
+    )
+
+    var firstWeekSeriesGrowthSent by booleanPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_growth_first_week_series_sent),
+        default = false,
+    )
+
+    var firstWeekDaysOfUseGrowthData by stringSetPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_growth_first_week_days_of_use),
+        default = setOf(),
+    )
+
+    var adClickGrowthSent by booleanPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_growth_ad_click_sent),
+        default = false,
+    )
+
+    var usageTimeGrowthData by longPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_growth_usage_time),
+        default = -1,
+    )
+
+    var usageTimeGrowthSent by booleanPreference(
+        key = appContext.getPreferenceKey(R.string.pref_key_growth_usage_time_sent),
         default = false,
     )
 

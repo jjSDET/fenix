@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
@@ -68,12 +69,12 @@ import org.mozilla.fenix.compose.ListItemTabLarge
 import org.mozilla.fenix.compose.ListItemTabLargePlaceholder
 import org.mozilla.fenix.compose.ListItemTabSurface
 import org.mozilla.fenix.compose.SelectableChip
+import org.mozilla.fenix.compose.SelectableChipColors
 import org.mozilla.fenix.compose.StaggeredHorizontalGrid
 import org.mozilla.fenix.compose.TabSubtitleWithInterdot
 import org.mozilla.fenix.compose.inComposePreview
 import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.theme.FirefoxTheme
-import org.mozilla.fenix.theme.Theme
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -190,48 +191,50 @@ fun PocketSponsoredStory(
 
     ListItemTabSurface(
         imageUrl = imageUrl,
+        contentPadding = PaddingValues(16.dp, 0.dp),
         backgroundColor = backgroundColor,
         onClick = { onStoryClick(story) },
     ) {
-        Text(
-            text = story.title,
-            modifier = Modifier.semantics {
-                testTagsAsResourceId = true
-                testTag = "pocket.sponsoredStory.title"
-            },
-            color = FirefoxTheme.colors.textPrimary,
-            overflow = TextOverflow.Ellipsis,
-            maxLines = 2,
-            style = FirefoxTheme.typography.body2,
-        )
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            Text(
+                text = story.title,
+                modifier = Modifier.semantics {
+                    testTagsAsResourceId = true
+                    testTag = "pocket.sponsoredStory.title"
+                },
+                color = FirefoxTheme.colors.textPrimary,
+                overflow = TextOverflow.Ellipsis,
+                maxLines = 2,
+                style = FirefoxTheme.typography.body2,
+            )
 
-        Spacer(Modifier.height(9.dp))
+            Text(
+                text = stringResource(R.string.pocket_stories_sponsor_indication),
+                modifier = Modifier.semantics {
+                    testTagsAsResourceId = true
+                    testTag = "pocket.sponsoredStory.identifier"
+                },
+                color = FirefoxTheme.colors.textSecondary,
+                overflow = TextOverflow.Ellipsis,
+                maxLines = 1,
+                style = FirefoxTheme.typography.caption,
+            )
 
-        Text(
-            text = stringResource(R.string.pocket_stories_sponsor_indication),
-            modifier = Modifier.semantics {
-                testTagsAsResourceId = true
-                testTag = "pocket.sponsoredStory.identifier"
-            },
-            color = FirefoxTheme.colors.textSecondary,
-            overflow = TextOverflow.Ellipsis,
-            maxLines = 1,
-            style = FirefoxTheme.typography.caption,
-        )
-
-        Spacer(Modifier.height(7.dp))
-
-        Text(
-            text = story.sponsor,
-            modifier = Modifier.semantics {
-                testTagsAsResourceId = true
-                testTag = "pocket.sponsoredStory.sponsor"
-            },
-            color = FirefoxTheme.colors.textSecondary,
-            overflow = TextOverflow.Ellipsis,
-            maxLines = 1,
-            style = FirefoxTheme.typography.caption,
-        )
+            Text(
+                text = story.sponsor,
+                modifier = Modifier.semantics {
+                    testTagsAsResourceId = true
+                    testTag = "pocket.sponsoredStory.sponsor"
+                },
+                color = FirefoxTheme.colors.textSecondary,
+                overflow = TextOverflow.Ellipsis,
+                maxLines = 1,
+                style = FirefoxTheme.typography.caption,
+            )
+        }
     }
 }
 
@@ -420,7 +423,7 @@ private fun Rect.getIntersectPercentage(realSize: IntSize, other: Rect): Float {
  * @param categories The categories needed to be displayed.
  * @param selections List of categories currently selected.
  * @param modifier [Modifier] to be applied to the layout.
- * @param categoryColors The color set defined by [PocketStoriesCategoryColors] used to style Pocket categories.
+ * @param categoryColors The color set defined by [SelectableChipColors] used to style Pocket categories.
  * @param onCategoryClick Callback for when the user taps a category.
  */
 @OptIn(ExperimentalComposeUiApi::class)
@@ -430,9 +433,16 @@ fun PocketStoriesCategories(
     categories: List<PocketRecommendedStoriesCategory>,
     selections: List<PocketRecommendedStoriesSelectedCategory>,
     modifier: Modifier = Modifier,
-    categoryColors: PocketStoriesCategoryColors = PocketStoriesCategoryColors.buildColors(),
+    categoryColors: SelectableChipColors = SelectableChipColors.buildColors(),
     onCategoryClick: (PocketRecommendedStoriesCategory) -> Unit,
 ) {
+    val selectableChipColors = SelectableChipColors(
+        selectedTextColor = categoryColors.selectedTextColor,
+        unselectedTextColor = categoryColors.unselectedTextColor,
+        selectedBackgroundColor = categoryColors.selectedBackgroundColor,
+        unselectedBackgroundColor = categoryColors.unselectedBackgroundColor,
+    )
+
     Box(
         modifier = modifier.semantics {
             testTagsAsResourceId = true
@@ -447,49 +457,13 @@ fun PocketStoriesCategories(
                 SelectableChip(
                     text = category.name,
                     isSelected = selections.map { it.name }.contains(category.name),
-                    selectedTextColor = categoryColors.selectedTextColor,
-                    unselectedTextColor = categoryColors.unselectedTextColor,
-                    selectedBackgroundColor = categoryColors.selectedBackgroundColor,
-                    unselectedBackgroundColor = categoryColors.unselectedBackgroundColor,
+                    isSquare = true,
+                    selectableChipColors = selectableChipColors,
                 ) {
                     onCategoryClick(category)
                 }
             }
         }
-    }
-}
-
-/**
- * Wrapper for the color parameters of [PocketStoriesCategories].
- *
- * @param selectedTextColor Text [Color] when the category is selected.
- * @param unselectedTextColor Text [Color] when the category is not selected.
- * @param selectedBackgroundColor Background [Color] when the category is selected.
- * @param unselectedBackgroundColor Background [Color] when the category is not selected.
- */
-data class PocketStoriesCategoryColors(
-    val selectedBackgroundColor: Color,
-    val unselectedBackgroundColor: Color,
-    val selectedTextColor: Color,
-    val unselectedTextColor: Color,
-) {
-    companion object {
-
-        /**
-         * Builder function used to construct an instance of [PocketStoriesCategoryColors].
-         */
-        @Composable
-        fun buildColors(
-            selectedBackgroundColor: Color = FirefoxTheme.colors.textActionPrimary,
-            unselectedBackgroundColor: Color = FirefoxTheme.colors.textActionTertiary,
-            selectedTextColor: Color = FirefoxTheme.colors.actionPrimary,
-            unselectedTextColor: Color = FirefoxTheme.colors.actionTertiary,
-        ) = PocketStoriesCategoryColors(
-            selectedBackgroundColor = selectedBackgroundColor,
-            unselectedBackgroundColor = unselectedBackgroundColor,
-            selectedTextColor = selectedTextColor,
-            unselectedTextColor = unselectedTextColor,
-        )
     }
 }
 
@@ -579,7 +553,7 @@ fun PoweredByPocketHeader(
 @Composable
 @Preview
 private fun PocketStoriesComposablesPreview() {
-    FirefoxTheme(theme = Theme.getTheme()) {
+    FirefoxTheme {
         Box(Modifier.background(FirefoxTheme.colors.layer2)) {
             Column {
                 PocketStories(

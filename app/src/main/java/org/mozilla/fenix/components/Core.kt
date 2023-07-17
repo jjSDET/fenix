@@ -11,7 +11,10 @@ import android.os.StrictMode
 import androidx.appcompat.content.res.AppCompatResources.getDrawable
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
+import mozilla.components.browser.domains.autocomplete.BaseDomainAutocompleteProvider
+import mozilla.components.browser.domains.autocomplete.ShippedDomainsProvider
 import mozilla.components.browser.engine.gecko.GeckoEngine
+import mozilla.components.browser.engine.gecko.cookiebanners.GeckoCookieBannersStorage
 import mozilla.components.browser.engine.gecko.fetch.GeckoViewFetchClient
 import mozilla.components.browser.engine.gecko.permission.GeckoSitePermissionsStorage
 import mozilla.components.browser.icons.BrowserIcons
@@ -32,6 +35,7 @@ import mozilla.components.concept.engine.DefaultSettings
 import mozilla.components.concept.engine.Engine
 import mozilla.components.concept.engine.mediaquery.PreferredColorScheme
 import mozilla.components.concept.fetch.Client
+import mozilla.components.feature.awesomebar.provider.SessionAutocompleteProvider
 import mozilla.components.feature.customtabs.store.CustomTabsServiceStore
 import mozilla.components.feature.downloads.DownloadMiddleware
 import mozilla.components.feature.logins.exceptions.LoginExceptionStorage
@@ -68,6 +72,7 @@ import mozilla.components.service.digitalassetlinks.local.StatementRelationCheck
 import mozilla.components.service.location.LocationService
 import mozilla.components.service.location.MozillaLocationService
 import mozilla.components.service.pocket.PocketStoriesConfig
+import mozilla.components.service.pocket.PocketStoriesRequestConfig
 import mozilla.components.service.pocket.PocketStoriesService
 import mozilla.components.service.pocket.Profile
 import mozilla.components.service.sync.autofill.AutofillCreditCardsAddressesStorage
@@ -134,6 +139,8 @@ class Core(
             httpsOnlyMode = context.settings().getHttpsOnlyMode(),
             cookieBannerHandlingModePrivateBrowsing = context.settings().getCookieBannerHandling(),
             cookieBannerHandlingMode = context.settings().getCookieBannerHandling(),
+            cookieBannerHandlingDetectOnlyMode = context.settings()
+                .shouldEnabledCookieBannerDetectOnlyMode(),
         )
 
         GeckoEngine(
@@ -182,6 +189,8 @@ class Core(
             trackingProtectionPolicyFactory.createTrackingProtectionPolicy(),
         )
     }
+
+    val cookieBannersStorage by lazyMonitored { GeckoCookieBannersStorage(geckoRuntime) }
 
     val geckoSitePermissionsStorage by lazyMonitored {
         GeckoSitePermissionsStorage(geckoRuntime, OnDiskSitePermissionsStorage(context))
@@ -232,7 +241,7 @@ class Core(
                 RecentlyClosedMiddleware(recentlyClosedTabsStorage, RECENTLY_CLOSED_MAX),
                 DownloadMiddleware(context, DownloadService::class.java),
                 ReaderViewMiddleware(),
-                TelemetryMiddleware(context.settings(), metrics),
+                TelemetryMiddleware(context.settings(), metrics, crashReporter),
                 ThumbnailsMiddleware(thumbnailStorage),
                 UndoMiddleware(context.getUndoDelay()),
                 RegionMiddleware(context, locationService),
@@ -353,6 +362,16 @@ class Core(
     val lazyPasswordsStorage = lazyMonitored { SyncableLoginsStorage(context, lazySecurePrefs) }
     val lazyAutofillStorage =
         lazyMonitored { AutofillCreditCardsAddressesStorage(context, lazySecurePrefs) }
+    val lazyDomainsAutocompleteProvider = lazyMonitored {
+        // Assume this is used together with other autocomplete providers (like history) which have priority 0
+        // and set priority 1 for the domains provider to ensure other providers' results are shown first.
+        ShippedDomainsProvider(1).also { shippedDomainsProvider ->
+            shippedDomainsProvider.initialize(context)
+        }
+    }
+    val lazySessionAutocompleteProvider = lazyMonitored {
+        SessionAutocompleteProvider(store)
+    }
 
     /**
      * The storage component to sync and persist tabs in a Firefox Sync account.
@@ -367,6 +386,8 @@ class Core(
     val bookmarksStorage: PlacesBookmarksStorage get() = lazyBookmarksStorage.value
     val passwordsStorage: SyncableLoginsStorage get() = lazyPasswordsStorage.value
     val autofillStorage: AutofillCreditCardsAddressesStorage get() = lazyAutofillStorage.value
+    val domainsAutocompleteProvider: BaseDomainAutocompleteProvider get() = lazyDomainsAutocompleteProvider.value
+    val sessionAutocompleteProvider: SessionAutocompleteProvider get() = lazySessionAutocompleteProvider.value
 
     val tabCollectionStorage by lazyMonitored {
         TabCollectionStorage(
@@ -391,6 +412,15 @@ class Core(
                 profileId = UUID.fromString(context.settings().pocketSponsoredStoriesProfileId),
                 appId = BuildConfig.POCKET_CONSUMER_KEY,
             ),
+            sponsoredStoriesParams = if (context.settings().useCustomConfigurationForSponsoredStories) {
+                PocketStoriesRequestConfig(
+                    context.settings().pocketSponsoredStoriesSiteId,
+                    context.settings().pocketSponsoredStoriesCountry,
+                    context.settings().pocketSponsoredStoriesCity,
+                )
+            } else {
+                PocketStoriesRequestConfig()
+            },
         )
     }
     val pocketStoriesService by lazyMonitored { PocketStoriesService(context, pocketStoriesConfig) }

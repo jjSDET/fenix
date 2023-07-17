@@ -95,6 +95,7 @@ import org.mozilla.fenix.databinding.FragmentHomeBinding
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.containsQueryParameters
 import org.mozilla.fenix.ext.hideToolbar
+import org.mozilla.fenix.ext.increaseTapArea
 import org.mozilla.fenix.ext.nav
 import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.ext.runIfFragmentIsAttached
@@ -102,6 +103,7 @@ import org.mozilla.fenix.ext.scaleToBottomOfView
 import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.gleanplumb.DefaultMessageController
 import org.mozilla.fenix.gleanplumb.MessagingFeature
+import org.mozilla.fenix.gleanplumb.NimbusMessagingController
 import org.mozilla.fenix.home.mozonline.showPrivacyPopWindow
 import org.mozilla.fenix.home.pocket.DefaultPocketStoriesController
 import org.mozilla.fenix.home.pocket.PocketRecommendedStoriesCategory
@@ -347,11 +349,11 @@ class HomeFragment : Fragment() {
         }
 
         requireContext().settings().showUnifiedSearchFeature.let {
-            binding.searchSelector.isVisible = it
+            binding.searchSelectorButton.isVisible = it
             binding.searchEngineIcon.isGone = it
         }
 
-        binding.searchSelector.apply {
+        binding.searchSelectorButton.apply {
             setOnClickListener {
                 val orientation = if (context.settings().shouldUseBottomToolbar) {
                     Orientation.UP
@@ -360,7 +362,10 @@ class HomeFragment : Fragment() {
                 }
 
                 UnifiedSearch.searchMenuTapped.record(NoExtras())
-                searchSelectorMenu.menuController.show(anchor = it, orientation = orientation, forceOrientation = true)
+                searchSelectorMenu.menuController.show(
+                    anchor = it.findViewById(R.id.search_selector),
+                    orientation = orientation,
+                )
             }
         }
 
@@ -371,7 +376,7 @@ class HomeFragment : Fragment() {
                 engine = components.core.engine,
                 messageController = DefaultMessageController(
                     appStore = components.appStore,
-                    messagingStorage = components.analytics.messagingStorage,
+                    messagingController = NimbusMessagingController(components.analytics.messagingStorage),
                     homeActivity = activity,
                 ),
                 store = store,
@@ -416,7 +421,6 @@ class HomeFragment : Fragment() {
             pocketStoriesController = DefaultPocketStoriesController(
                 homeActivity = activity,
                 appStore = components.appStore,
-                navController = findNavController(),
             ),
         )
 
@@ -677,7 +681,7 @@ class HomeFragment : Fragment() {
                     }
 
                     if (requireContext().settings().showUnifiedSearchFeature) {
-                        binding.searchSelector.setIcon(icon, name)
+                        binding.searchSelectorButton.setIcon(icon, name)
                     } else {
                         binding.searchEngineIcon.setImageDrawable(icon)
                     }
@@ -899,6 +903,8 @@ class HomeFragment : Fragment() {
                     true,
                 )
             layout.findViewById<Button>(R.id.cfr_pos_button).apply {
+                this.increaseTapArea(CFR_TAP_INCREASE_DPS)
+
                 setOnClickListener {
                     PrivateShortcutCreateManager.createPrivateShortcut(context)
                     privateBrowsingRecommend.dismiss()
@@ -1080,6 +1086,8 @@ class HomeFragment : Fragment() {
 
         private const val CFR_WIDTH_DIVIDER = 1.7
         private const val CFR_Y_OFFSET = -20
+
+        private const val CFR_TAP_INCREASE_DPS = 6
 
         // Sponsored top sites titles and search engine names used for filtering
         const val AMAZON_SPONSORED_TITLE = "Amazon"

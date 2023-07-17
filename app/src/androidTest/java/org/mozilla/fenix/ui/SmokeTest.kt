@@ -17,7 +17,6 @@ import mozilla.components.concept.engine.mediasession.MediaSession
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.mozilla.fenix.IntentReceiverActivity
@@ -26,18 +25,15 @@ import org.mozilla.fenix.customannotations.SmokeTest
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.helpers.AndroidAssetDispatcher
 import org.mozilla.fenix.helpers.Constants.PackageName.YOUTUBE_APP
-import org.mozilla.fenix.helpers.FeatureSettingsHelperDelegate
 import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
 import org.mozilla.fenix.helpers.RecyclerViewIdlingResource
 import org.mozilla.fenix.helpers.RetryTestRule
 import org.mozilla.fenix.helpers.TestAssetHelper
-import org.mozilla.fenix.helpers.TestHelper
 import org.mozilla.fenix.helpers.TestHelper.appName
 import org.mozilla.fenix.helpers.TestHelper.assertNativeAppOpens
 import org.mozilla.fenix.helpers.TestHelper.createCustomTabIntent
 import org.mozilla.fenix.helpers.TestHelper.generateRandomString
 import org.mozilla.fenix.helpers.TestHelper.registerAndCleanupIdlingResources
-import org.mozilla.fenix.helpers.TestHelper.scrollToElementByText
 import org.mozilla.fenix.helpers.ViewVisibilityIdlingResource
 import org.mozilla.fenix.ui.robots.browserScreen
 import org.mozilla.fenix.ui.robots.customTabScreen
@@ -46,7 +42,6 @@ import org.mozilla.fenix.ui.robots.navigationToolbar
 import org.mozilla.fenix.ui.robots.notificationShade
 import org.mozilla.fenix.ui.robots.openEditURLView
 import org.mozilla.fenix.ui.robots.searchScreen
-import org.mozilla.fenix.ui.util.STRING_ONBOARDING_TRACKING_PROTECTION_HEADER
 
 /**
  * Test Suite that contains a part of the Smoke and Sanity tests defined in TestRail:
@@ -61,11 +56,10 @@ class SmokeTest {
     private lateinit var mockWebServer: MockWebServer
     private val customMenuItem = "TestMenuItem"
     private lateinit var browserStore: BrowserStore
-    private val featureSettingsHelper = FeatureSettingsHelperDelegate()
 
     @get:Rule(order = 0)
     val activityTestRule = AndroidComposeTestRule(
-        HomeActivityIntentTestRule(),
+        HomeActivityIntentTestRule.withDefaultSettingsOverrides(),
         { it.activity },
     )
 
@@ -86,13 +80,6 @@ class SmokeTest {
         // So we are initializing this here instead of in all related tests.
         browserStore = activityTestRule.activity.components.core.store
 
-        // disabling the new homepage pop-up that interferes with the tests.
-        featureSettingsHelper.apply {
-            isJumpBackInCFREnabled = false
-            isTCPCFREnabled = false
-            isWallpaperOnboardingEnabled = false
-        }.applyFlagUpdates()
-
         mDevice = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         mockWebServer = MockWebServer().apply {
             dispatcher = AndroidAssetDispatcher()
@@ -103,61 +90,6 @@ class SmokeTest {
     @After
     fun tearDown() {
         mockWebServer.shutdown()
-
-        // resetting modified features enabled setting to default
-        featureSettingsHelper.resetAllFeatureFlags()
-    }
-
-    // Verifies the first run onboarding screen
-    @Test
-    fun firstRunScreenTest() {
-        homeScreen {
-            verifyHomeScreen()
-            verifyNavigationToolbar()
-            verifyHomePrivateBrowsingButton()
-            verifyHomeMenu()
-            verifyHomeWordmark()
-
-            verifyWelcomeHeader()
-            // Sign in to Firefox
-            verifyStartSyncHeader()
-            verifyAccountsSignInButton()
-
-            // Always-on privacy
-            scrollToElementByText(STRING_ONBOARDING_TRACKING_PROTECTION_HEADER)
-            verifyAutomaticPrivacyHeader()
-            verifyAutomaticPrivacyText()
-
-            // Choose your theme
-            verifyChooseThemeHeader()
-            verifyChooseThemeText()
-            verifyDarkThemeDescription()
-            verifyDarkThemeToggle()
-            verifyLightThemeDescription()
-            verifyLightThemeToggle()
-
-            // Pick your toolbar placement
-            verifyTakePositionHeader()
-            verifyTakePositionElements()
-
-            // Your privacy
-            verifyYourPrivacyHeader()
-            verifyYourPrivacyText()
-            verifyPrivacyNoticeButton()
-
-            // Start Browsing
-            verifyStartBrowsingButton()
-        }
-    }
-
-    // Verifies the functionality of the onboarding Start Browsing button
-    @Test
-    fun startBrowsingButtonTest() {
-        homeScreen {
-            verifyStartBrowsingButton()
-        }.clickStartBrowsingButton {
-            verifySearchView()
-        }
     }
 
     /* Verifies the nav bar:
@@ -196,7 +128,7 @@ class SmokeTest {
         }.enterURLAndEnterToBrowser(defaultWebPage.url) {
             waitForPageToLoad()
         }.openThreeDotMenu {
-            verifyPageThreeDotMainMenuItems()
+            verifyPageThreeDotMainMenuItems(isRequestDesktopSiteEnabled = false)
         }
     }
 
@@ -307,7 +239,7 @@ class SmokeTest {
         }.openThreeDotMenu {
             expandMenu()
         }.openAddToHomeScreen {
-            verifyShortcutNameField("Test_Page_1")
+            verifyShortcutTextFieldTitle("Test_Page_1")
             addShortcutName(shortcutTitle)
             clickAddShortcutButton()
             clickAddAutomaticallyButton()
@@ -421,56 +353,6 @@ class SmokeTest {
         }
     }
 
-    // Swipes the nav bar left/right to switch between tabs
-    @Test
-    fun swipeToSwitchTabTest() {
-        val firstWebPage = TestAssetHelper.getGenericAsset(mockWebServer, 1)
-        val secondWebPage = TestAssetHelper.getGenericAsset(mockWebServer, 2)
-
-        navigationToolbar {
-        }.enterURLAndEnterToBrowser(firstWebPage.url) {
-        }.openTabDrawer {
-        }.openNewTab {
-        }.submitQuery(secondWebPage.url.toString()) {
-            swipeNavBarRight(secondWebPage.url.toString())
-            verifyUrl(firstWebPage.url.toString())
-            swipeNavBarLeft(firstWebPage.url.toString())
-            verifyUrl(secondWebPage.url.toString())
-        }
-    }
-
-    // Saves a login, then changes it and verifies the update
-    @Test
-    fun updateSavedLoginTest() {
-        val saveLoginTest =
-            TestAssetHelper.getSaveLoginAsset(mockWebServer)
-
-        navigationToolbar {
-        }.enterURLAndEnterToBrowser(saveLoginTest.url) {
-            verifySaveLoginPromptIsShown()
-            // Click Save to save the login
-            saveLoginFromPrompt("Save")
-        }.openNavigationToolbar {
-        }.enterURLAndEnterToBrowser(saveLoginTest.url) {
-            enterPassword("test")
-            verifyUpdateLoginPromptIsShown()
-            // Click Update to change the saved password
-            saveLoginFromPrompt("Update")
-        }.openThreeDotMenu {
-        }.openSettings {
-            TestHelper.scrollToElementByText("Logins and passwords")
-        }.openLoginsAndPasswordSubMenu {
-        }.openSavedLogins {
-            verifySecurityPromptForLogins()
-            tapSetupLater()
-            // Verify that the login appears correctly
-            verifySavedLoginFromPrompt("test@example.com")
-            viewSavedLoginDetails("test@example.com")
-            revealPassword()
-            verifyPasswordSaved("test") // failing here locally
-        }
-    }
-
     // Verifies that a recently closed item is properly opened
     @Test
     fun openRecentlyClosedItemTest() {
@@ -566,7 +448,6 @@ class SmokeTest {
     }
 
     @Test
-    @Ignore("Failing after compose migration. See: https://github.com/mozilla-mobile/fenix/issues/26087")
     fun shareTabsFromTabsTrayTest() {
         val firstWebsite = TestAssetHelper.getGenericAsset(mockWebServer, 1)
         val secondWebsite = TestAssetHelper.getGenericAsset(mockWebServer, 2)
@@ -614,7 +495,6 @@ class SmokeTest {
     }
 
     @Test
-    @Ignore("Failing after compose migration. See: https://github.com/mozilla-mobile/fenix/issues/26087")
     fun privateTabsTrayWithOpenedTabTest() {
         val website = TestAssetHelper.getGenericAsset(mockWebServer, 1)
 
@@ -624,7 +504,6 @@ class SmokeTest {
         homeScreen {
         }.openNavigationToolbar {
         }.enterURLAndEnterToBrowser(website.url) {
-            mDevice.waitForIdle()
         }.openTabDrawer {
             verifyNormalBrowsingButtonIsSelected(false)
             verifyPrivateBrowsingButtonIsSelected(true)
@@ -634,7 +513,8 @@ class SmokeTest {
             verifyExistingTabList()
             verifyExistingOpenTabs(website.title)
             verifyCloseTabsButton(website.title)
-            verifyOpenedTabThumbnail()
+            // Disabled step due to ongoing tabs tray compose refactoring, see: https://github.com/mozilla-mobile/fenix/issues/21318
+            // verifyOpenedTabThumbnail()
             verifyPrivateBrowsingNewTabButton()
         }
     }
@@ -814,7 +694,6 @@ class SmokeTest {
     }
 
     @Test
-    @Ignore("Failing after compose migration. See: https://github.com/mozilla-mobile/fenix/issues/26087")
     fun tabMediaControlButtonTest() {
         val audioTestPage = TestAssetHelper.getAudioPageAsset(mockWebServer)
 

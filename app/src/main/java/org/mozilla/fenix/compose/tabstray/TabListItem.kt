@@ -4,7 +4,6 @@
 
 package org.mozilla.fenix.compose.tabstray
 
-import android.content.res.Configuration
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -25,16 +24,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.browser.state.state.createTab
 import org.mozilla.fenix.R
 import org.mozilla.fenix.compose.ThumbnailCard
+import org.mozilla.fenix.compose.annotation.LightDarkPreview
 import org.mozilla.fenix.ext.toShortUrl
 import org.mozilla.fenix.theme.FirefoxTheme
-import org.mozilla.fenix.theme.Theme
 
 /**
  * List item used to display a tab that supports clicks,
@@ -169,10 +167,9 @@ private fun Thumbnail(
 }
 
 @Composable
-@Preview(uiMode = Configuration.UI_MODE_NIGHT_YES)
-@Preview(uiMode = Configuration.UI_MODE_NIGHT_NO)
+@LightDarkPreview
 private fun TabListItemPreview() {
-    FirefoxTheme(theme = Theme.getTheme()) {
+    FirefoxTheme {
         TabListItem(
             tab = createTab(url = "www.mozilla.com", title = "Mozilla"),
             onCloseClick = {},
@@ -184,10 +181,9 @@ private fun TabListItemPreview() {
 }
 
 @Composable
-@Preview(uiMode = Configuration.UI_MODE_NIGHT_YES)
-@Preview(uiMode = Configuration.UI_MODE_NIGHT_NO)
+@LightDarkPreview
 private fun SelectedTabListItemPreview() {
-    FirefoxTheme(theme = Theme.getTheme()) {
+    FirefoxTheme {
         TabListItem(
             tab = createTab(url = "www.mozilla.com", title = "Mozilla"),
             onCloseClick = {},

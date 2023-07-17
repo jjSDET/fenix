@@ -7,11 +7,17 @@ package org.mozilla.fenix.trackingprotection
 import android.content.Context
 import androidx.fragment.app.Fragment
 import androidx.navigation.NavController
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import mozilla.components.browser.state.state.SessionState
+import mozilla.components.concept.engine.cookiehandling.CookieBannersStorage
 import mozilla.components.concept.engine.permission.SitePermissions
 import org.mozilla.fenix.browser.BrowserFragmentDirections
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.runIfFragmentIsAttached
+import org.mozilla.fenix.ext.settings
 
 /**
  * Interactor for the tracking protection panel
@@ -21,7 +27,9 @@ import org.mozilla.fenix.ext.runIfFragmentIsAttached
 class TrackingProtectionPanelInteractor(
     private val context: Context,
     private val fragment: Fragment,
-    private val store: TrackingProtectionStore,
+    private val store: ProtectionsStore,
+    private val ioScope: CoroutineScope,
+    private val cookieBannersStorage: CookieBannersStorage,
     private val navController: () -> NavController,
     private val openTrackingProtectionSettings: () -> Unit,
     private val openLearnMoreLink: () -> Unit,
@@ -31,7 +39,7 @@ class TrackingProtectionPanelInteractor(
 ) : TrackingProtectionPanelViewInteractor {
 
     override fun openDetails(category: TrackingProtectionCategory, categoryBlocked: Boolean) {
-        store.dispatch(TrackingProtectionAction.EnterDetailsMode(category, categoryBlocked))
+        store.dispatch(ProtectionsAction.EnterDetailsMode(category, categoryBlocked))
     }
 
     override fun onLearnMoreClicked() {
@@ -45,28 +53,39 @@ class TrackingProtectionPanelInteractor(
     override fun onBackPressed() {
         getCurrentTab()?.let { tab ->
             context.components.useCases.trackingProtectionUseCases.containsException(tab.id) { contains ->
-                fragment.runIfFragmentIsAttached {
-                    navController().popBackStack()
-                    val isTrackingProtectionEnabled = tab.trackingProtection.enabled && !contains
-                    val directions =
-                        BrowserFragmentDirections.actionGlobalQuickSettingsSheetDialogFragment(
-                            sessionId = tab.id,
-                            url = tab.content.url,
-                            title = tab.content.title,
-                            isSecured = tab.content.securityInfo.secure,
-                            sitePermissions = sitePermissions,
-                            gravity = gravity,
-                            certificateName = tab.content.securityInfo.issuer,
-                            permissionHighlights = tab.content.permissionHighlights,
-                            isTrackingProtectionEnabled = isTrackingProtectionEnabled,
-                        )
-                    navController().navigate(directions)
+                ioScope.launch {
+                    val hasException = if (context.settings().shouldUseCookieBanner) {
+                        cookieBannersStorage.hasException(tab.content.url, tab.content.private)
+                    } else {
+                        false
+                    }
+                    withContext(Dispatchers.Main) {
+                        fragment.runIfFragmentIsAttached {
+                            navController().popBackStack()
+                            val isTrackingProtectionEnabled =
+                                tab.trackingProtection.enabled && !contains
+                            val directions =
+                                BrowserFragmentDirections.actionGlobalQuickSettingsSheetDialogFragment(
+                                    sessionId = tab.id,
+                                    url = tab.content.url,
+                                    title = tab.content.title,
+                                    isSecured = tab.content.securityInfo.secure,
+                                    sitePermissions = sitePermissions,
+                                    gravity = gravity,
+                                    certificateName = tab.content.securityInfo.issuer,
+                                    permissionHighlights = tab.content.permissionHighlights,
+                                    isTrackingProtectionEnabled = isTrackingProtectionEnabled,
+                                    isCookieHandlingEnabled = !hasException,
+                                )
+                            navController().navigate(directions)
+                        }
+                    }
                 }
             }
         }
     }
 
     override fun onExitDetailMode() {
-        store.dispatch(TrackingProtectionAction.ExitDetailsMode)
+        store.dispatch(ProtectionsAction.ExitDetailsMode)
     }
 }
